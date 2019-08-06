@@ -2,19 +2,27 @@ package com.valtech.gpstrackerdemo;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.Dialog;
 import android.os.Bundle;
-import android.support.design.widget.FloatingActionButton;
-import android.support.design.widget.Snackbar;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
+import android.text.InputType;
 import android.view.View;
-import android.view.Menu;
-import android.view.MenuItem;
+import android.view.Window;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.Toast;
-import com.baidu.location.*;
-import com.baidu.mapapi.map.*;
+
+import com.baidu.location.BDLocation;
+import com.baidu.location.BDLocationListener;
+import com.baidu.location.LocationClient;
+import com.baidu.location.LocationClientOption;
+import com.baidu.mapapi.map.BaiduMap;
+import com.baidu.mapapi.map.MapStatus;
+import com.baidu.mapapi.map.MapStatusUpdate;
+import com.baidu.mapapi.map.MapStatusUpdateFactory;
+import com.baidu.mapapi.map.MapView;
+import com.baidu.mapapi.map.MyLocationData;
 import com.baidu.mapapi.model.LatLng;
+
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
 
@@ -66,6 +74,7 @@ public class MainActivity extends Activity {
     private LocationClient mLocationClient = null;
     private BDLocationListener listener = new MyLocationListener();
     private Button goBack;
+    private Button inputLocation;
     private BDLocation location;
 
     private final int REQUEST_LOCATION_PERMISSION = 1;
@@ -82,6 +91,7 @@ public class MainActivity extends Activity {
         mMapView = (MapView) findViewById(R.id.bmapView);
         mBaiduMap = mMapView.getMap();
         mBaiduMap.setMapType(BaiduMap.MAP_TYPE_NORMAL);
+        mBaiduMap.setMapStatus(MapStatusUpdateFactory.newMapStatus(new MapStatus.Builder().zoom(16.0f).build()));//默认缩放
 
         requestLocationPermission();
 
@@ -91,7 +101,7 @@ public class MainActivity extends Activity {
         //定位的方法
         findLocation();
 
-        goBack = (Button) findViewById(R.id.goback);
+        goBack = (Button) findViewById(R.id.goBack);
         location = new BDLocation();
         goBack.setOnClickListener(new View.OnClickListener() {
 
@@ -100,7 +110,18 @@ public class MainActivity extends Activity {
                 findLocation();
             }
         });
+
+        inputLocation = (Button) findViewById(R.id.inputLocation);
+        inputLocation.setOnClickListener(new View.OnClickListener() {
+
+            @Override
+            public void onClick(View v) {
+                openInputLocationDlg(MainActivity.this);
+            }
+        });
+
     }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -155,6 +176,49 @@ public class MainActivity extends Activity {
         mLocationClient.start();
     }
 
+    public void openInputLocationDlg(Activity activity) {
+        final Dialog dialog = new Dialog(activity);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(false);
+        dialog.setContentView(R.layout.input_location_dialog);
+
+        final EditText et = dialog.findViewById(R.id.et);
+        et.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_SIGNED|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        final EditText et2 = dialog.findViewById(R.id.et2);
+        et2.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_SIGNED|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        Button btnok = (Button) dialog.findViewById(R.id.btnok);
+        btnok.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Double longitudeVal = Double.valueOf(et.getText().toString());
+                Double latitudeVal = Double.valueOf(et2.getText().toString());
+
+                MapStatus.Builder builder = new MapStatus.Builder();
+                LatLng latLng = new LatLng(latitudeVal, longitudeVal);
+                builder.target(latLng).zoom(16.0f);
+                mBaiduMap.animateMapStatus(MapStatusUpdateFactory.newMapStatus(builder.build()));
+
+                MyLocationData locData = new MyLocationData.Builder()
+                        .accuracy(location.getRadius())
+                        .direction(100).latitude(latitudeVal)
+                        .longitude(longitudeVal).build();
+                mBaiduMap.setMyLocationData(locData);
+
+                dialog.dismiss();
+            }
+        });
+
+        Button btncn = (Button) dialog.findViewById(R.id.btncn);
+        btncn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                dialog.dismiss();
+            }
+        });
+
+        dialog.show();
+    }
+
     class MyLocationListener implements BDLocationListener {
 
         @Override
@@ -165,6 +229,10 @@ public class MainActivity extends Activity {
             if (location == null || mMapView == null) {
                 return;
             }
+
+            System.out.println("Longitude = " + location.getLongitude());
+            System.out.println("Latitude = " + location.getLatitude());
+
             MyLocationData locData = new MyLocationData.Builder()
                     .accuracy(location.getRadius())
                     .direction(100).latitude(location.getLatitude())
