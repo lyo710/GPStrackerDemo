@@ -26,6 +26,8 @@
         <service android:name="com.baidu.location.f"
                  android:enabled="true"
                  android:process=":remote"/>
+        <service android:name="org.eclipse.paho.android.service.MqttService" /> <!--MqttService-->
+        <service android:name="com.valtech.gpstrackerdemo.MyMqttService"/> <!--MyMqttService-->
     </application>
 
     <!-- 访问网络，进行地图相关业务数据请求，包括地图数据，路线规划，POI检索等 -->
@@ -42,4 +44,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- 这个权限用于访问GPS定位 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 </manifest>

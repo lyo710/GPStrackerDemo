@@ -3,7 +3,12 @@ package com.valtech.gpstrackerdemo;
 import android.Manifest;
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.text.InputType;
 import android.view.View;
 import android.view.Window;
@@ -21,54 +26,18 @@ import com.baidu.mapapi.map.MapStatusUpdate;
 import com.baidu.mapapi.map.MapStatusUpdateFactory;
 import com.baidu.mapapi.map.MapView;
 import com.baidu.mapapi.map.MyLocationData;
+import com.baidu.mapapi.map.Overlay;
+import com.baidu.mapapi.map.OverlayOptions;
+import com.baidu.mapapi.map.PolylineOptions;
 import com.baidu.mapapi.model.LatLng;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
 
-//public class MainActivity extends AppCompatActivity {
-//
-//    @Override
-//    protected void onCreate(Bundle savedInstanceState) {
-//        super.onCreate(savedInstanceState);
-//        setContentView(R.layout.activity_main);
-//        Toolbar toolbar = findViewById(R.id.toolbar);
-//        setSupportActionBar(toolbar);
-//
-//        FloatingActionButton fab = findViewById(R.id.fab);
-//        fab.setOnClickListener(new View.OnClickListener() {
-//            @Override
-//            public void onClick(View view) {
-//                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-//                        .setAction("Action", null).show();
-//            }
-//        });
-//    }
-//
-//    @Override
-//    public boolean onCreateOptionsMenu(Menu menu) {
-//        // Inflate the menu; this adds items to the action bar if it is present.
-//        getMenuInflater().inflate(R.menu.menu_main, menu);
-//        return true;
-//    }
-//
-//    @Override
-//    public boolean onOptionsItemSelected(MenuItem item) {
-//        // Handle action bar item clicks here. The action bar will
-//        // automatically handle clicks on the Home/Up button, so long
-//        // as you specify a parent activity in AndroidManifest.xml.
-//        int id = item.getItemId();
-//
-//        //noinspection SimplifiableIfStatement
-//        if (id == R.id.action_settings) {
-//            return true;
-//        }
-//
-//        return super.onOptionsItemSelected(item);
-//    }
-//}
-
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements ServiceCallbacks {
     private MapView mMapView = null;
     private BaiduMap mBaiduMap;
     private LocationClient mLocationClient = null;
@@ -78,6 +47,31 @@ public class MainActivity extends Activity {
     private BDLocation location;
 
     private final int REQUEST_LOCATION_PERMISSION = 1;
+    private final int REQUEST_PHONESTATE_PERMISSION = 1;
+
+    private MyMqttService myMqttService;
+    private boolean bound = false;
+
+    List<LatLng> points = new ArrayList();
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // bind to Service
+        Intent intent = new Intent(this, MyMqttService.class);
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Unbind from service
+        if (bound) {
+            myMqttService.setCallbacks(null); // unregister
+            unbindService(serviceConnection);
+            bound = false;
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,9 +88,13 @@ public class MainActivity extends Activity {
         mBaiduMap.setMapStatus(MapStatusUpdateFactory.newMapStatus(new MapStatus.Builder().zoom(16.0f).build()));//默认缩放
 
         requestLocationPermission();
+        requestPhoneStatePermission();
 
         // 开启定位图层
         mBaiduMap.setMyLocationEnabled(true);
+
+        //开启连接MQTT服务
+        MyMqttService.startService(this);
 
         //定位的方法
         findLocation();
@@ -159,6 +157,17 @@ public class MainActivity extends Activity {
         }
         else {
             EasyPermissions.requestPermissions(this, "Please grant the location permission", REQUEST_LOCATION_PERMISSION, perms);
+        }
+    }
+
+    @AfterPermissionGranted(REQUEST_PHONESTATE_PERMISSION)
+    public void requestPhoneStatePermission() {
+        String[] perms = {Manifest.permission.READ_PHONE_STATE};
+        if(EasyPermissions.hasPermissions(this, perms)) {
+            Toast.makeText(this, "Permission already granted", Toast.LENGTH_SHORT).show();
+        }
+        else {
+            EasyPermissions.requestPermissions(this, "Please grant the phone state permission", REQUEST_PHONESTATE_PERMISSION, perms);
         }
     }
 
@@ -230,9 +239,6 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            System.out.println("Longitude = " + location.getLongitude());
-            System.out.println("Latitude = " + location.getLatitude());
-
             MyLocationData locData = new MyLocationData.Builder()
                     .accuracy(location.getRadius())
                     .direction(100).latitude(location.getLatitude())
@@ -244,6 +250,50 @@ public class MainActivity extends Activity {
             LatLng ll = new LatLng(location.getLatitude(), location.getLongitude());
             MapStatusUpdate u = MapStatusUpdateFactory.newLatLng(ll);
             mBaiduMap.animateMapStatus(u);
+            points.add(ll);
         }
     }
+
+    @Override
+    public void drawTrack(Double longitudeVal, Double latitudeVal) {
+        System.out.println("== In activity == 经度 = " + longitudeVal);
+        System.out.println("== In activity == 纬度 = " + latitudeVal);
+        LatLng ll = new LatLng(latitudeVal, longitudeVal);
+
+        MyLocationData locData = new MyLocationData.Builder()
+                .accuracy(location.getRadius())
+                .direction(100).latitude(latitudeVal)
+                .longitude(longitudeVal).build();
+        mBaiduMap.setMyLocationData(locData);
+
+        points.add(ll);
+        //设置折线的属性
+        OverlayOptions mOverlayOptions = new PolylineOptions()
+                .width(10)
+                .color(0xAAFF0000)
+                .points(points);
+        //在地图上绘制折线
+        //mPloyline 折线对象
+        Overlay mPolyline = mBaiduMap.addOverlay(mOverlayOptions);
+
+    }
+
+    /** Callbacks for service binding, passed to bindService() */
+    private ServiceConnection serviceConnection = new ServiceConnection() {
+
+        @Override
+        public void onServiceConnected(ComponentName className, IBinder service) {
+            // cast the IBinder and get MyService instance
+            MyMqttService.LocalBinder binder = (MyMqttService.LocalBinder) service;
+            myMqttService = binder.getService();
+            bound = true;
+            myMqttService.setCallbacks(MainActivity.this); // register
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName arg0) {
+            bound = false;
+        }
+    };
+
 }
